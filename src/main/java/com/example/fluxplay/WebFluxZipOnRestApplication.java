@@ -5,9 +5,13 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
-import org.springframework.http.*;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpResponse;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.ServerRequest;
@@ -37,21 +41,14 @@ public class WebFluxZipOnRestApplication {
     }
 
     @GetMapping(path = "zip", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    public ResponseEntity<Flux<DataBuffer>> getStuffFlux(ServerHttpResponse serverHttpResponse) throws Exception {
+    public ResponseEntity<Flux<DataBuffer>> getStuffFlux(ServerHttpResponse serverHttpResponse) {
         URL url = this.getClass().getResource("/files");
         if (url != null) {
-            try (Stream<Path> fileStream = Files.list(Paths.get(url.toURI()))) {
-                DataBufferFactory dataBufferFactory = serverHttpResponse.bufferFactory();
-                try (OutputStreamToDataBuffer outputStreamToDataBuffer = new OutputStreamToDataBuffer(dataBufferFactory)) {
-                    List<Path> paths = fileStream.toList();
-                    Flux<DataBuffer> flux = getDataBufferFlux(paths, outputStreamToDataBuffer, dataBufferFactory);
-                    return ResponseEntity
-                            .ok()
-                            .headers(httpHeaders -> httpHeaders.setContentDisposition(ContentDisposition.builder("attachment").filename("images.zip").build()))
-                            .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                            .body(flux);
-                }
-            }
+            return ResponseEntity
+                    .ok()
+                    .headers(httpHeaders -> httpHeaders.setContentDisposition(ContentDisposition.builder("attachment").filename("images.zip").build()))
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(getDataBufferFlux(url, serverHttpResponse.bufferFactory()));
         } else {
             return ResponseEntity.noContent().build();
         }
@@ -67,44 +64,42 @@ public class WebFluxZipOnRestApplication {
     public Mono<ServerResponse> getZipFlux(ServerRequest request) {
         URL url = this.getClass().getResource("/files");
         if (url != null) {
-            try (Stream<Path> fileStream = Files.list(Paths.get(url.toURI()))) {
-                DataBufferFactory dataBufferFactory = request.exchange().getResponse().bufferFactory();
-                try (OutputStreamToDataBuffer outputStreamToDataBuffer = new OutputStreamToDataBuffer(dataBufferFactory)) {
-                    List<Path> paths = fileStream.toList();
-                    Flux<DataBuffer> flux = getDataBufferFlux(paths, outputStreamToDataBuffer, dataBufferFactory);
-                    return ServerResponse
-                            .ok()
-                            .headers(httpHeaders -> httpHeaders.setContentDisposition(ContentDisposition.builder("attachment").filename("images.zip").build()))
-                            .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                            .body(BodyInserters.fromDataBuffers(flux));
-                }
-            } catch (IOException | URISyntaxException e) {
-                throw new RuntimeException(e);
-            }
+            return ServerResponse
+                    .ok()
+                    .headers(httpHeaders -> httpHeaders.setContentDisposition(ContentDisposition.builder("attachment").filename("images.zip").build()))
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(BodyInserters.fromDataBuffers(getDataBufferFlux(url, request.exchange().getResponse().bufferFactory())));
         } else {
             return ServerResponse.noContent().build();
         }
     }
 
-    private Flux<DataBuffer> getDataBufferFlux(List<Path> paths, OutputStreamToDataBuffer outputStreamToDataBuffer, DataBufferFactory dataBufferFactory) {
-        return Flux.generate(() -> new ZipWriterState(paths, new ZipOutputStream(outputStreamToDataBuffer)),
-                (zipWriterState, synchronousSink) -> {
-                    try {
-                        if (zipWriterState.writeNext()) {
-                            DataBuffer db = outputStreamToDataBuffer.getDataBuffer();
-                            if (db != null) {
-                                synchronousSink.next(db);
-                                outputStreamToDataBuffer.resetDataBuffer();
-                            } else {
-                                synchronousSink.next(dataBufferFactory.allocateBuffer(0));
+    private Flux<DataBuffer> getDataBufferFlux(URL url, DataBufferFactory dataBufferFactory) {
+        try (Stream<Path> fileStream = Files.list(Paths.get(url.toURI()))) {
+            try (OutputStreamToDataBuffer outputStreamToDataBuffer = new OutputStreamToDataBuffer(dataBufferFactory)) {
+                List<Path> paths = fileStream.toList();
+                return Flux.generate(() -> new ZipWriterState(paths, new ZipOutputStream(outputStreamToDataBuffer)),
+                        (zipWriterState, synchronousSink) -> {
+                            try {
+                                if (zipWriterState.writeNext()) {
+                                    DataBuffer db = outputStreamToDataBuffer.getDataBuffer();
+                                    if (db != null) {
+                                        synchronousSink.next(db);
+                                        outputStreamToDataBuffer.resetDataBuffer();
+                                    } else {
+                                        synchronousSink.next(dataBufferFactory.allocateBuffer(0));
+                                    }
+                                } else
+                                    synchronousSink.complete();
+                            } catch (IOException e) {
+                                synchronousSink.error(e);
                             }
-                        } else
-                            synchronousSink.complete();
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                    return zipWriterState;
-                });
+                            return zipWriterState;
+                        });
+            }
+        } catch (IOException | URISyntaxException e) {
+            return Flux.error(e);
+        }
     }
 
 }
