@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -41,7 +42,9 @@ public class ZipWriterState {
             Path file = files.get(fileIndex++);
             currentEntry = new ZipEntry(file.getFileName().toString());
             BasicFileAttributes fileAttributes = Files.readAttributes(file, BasicFileAttributes.class);
-            currentEntry.setTime(fileAttributes.lastModifiedTime().toMillis());
+            currentEntry.setCreationTime(FileTime.fromMillis(fileAttributes.creationTime().toMillis()));
+            currentEntry.setLastAccessTime(FileTime.fromMillis(fileAttributes.lastAccessTime().toMillis()));
+            currentEntry.setLastModifiedTime(FileTime.fromMillis(fileAttributes.lastModifiedTime().toMillis()));
             zos.putNextEntry(currentEntry);
             currentFis = Files.newInputStream(file);
         }
