@@ -41,17 +41,14 @@ public class WebFluxZipOnRestApplication {
     }
 
     @GetMapping(path = "zip", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    public ResponseEntity<Flux<DataBuffer>> getStuffFlux(ServerHttpResponse serverHttpResponse) {
-        URL url = this.getClass().getResource("/files");
-        if (url != null) {
-            return ResponseEntity
+    public Mono<ResponseEntity<Flux<DataBuffer>>> getStuffFlux(ServerHttpResponse serverHttpResponse) {
+        return Mono.justOrEmpty(this.getClass().getResource("/files"))
+                .map(url->ResponseEntity
                     .ok()
                     .headers(httpHeaders -> httpHeaders.setContentDisposition(ContentDisposition.builder("attachment").filename("images.zip").build()))
                     .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                    .body(getDataBufferFlux(url, serverHttpResponse.bufferFactory()));
-        } else {
-            return ResponseEntity.noContent().build();
-        }
+                    .body(getDataBufferFlux(url, serverHttpResponse.bufferFactory()))
+                ).defaultIfEmpty(ResponseEntity.noContent().build());
     }
 
     @Bean
@@ -62,16 +59,14 @@ public class WebFluxZipOnRestApplication {
     }
 
     public Mono<ServerResponse> getZipFlux(ServerRequest request) {
-        URL url = this.getClass().getResource("/files");
-        if (url != null) {
-            return ServerResponse
-                    .ok()
-                    .headers(httpHeaders -> httpHeaders.setContentDisposition(ContentDisposition.builder("attachment").filename("images.zip").build()))
-                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                    .body(BodyInserters.fromDataBuffers(getDataBufferFlux(url, request.exchange().getResponse().bufferFactory())));
-        } else {
-            return ServerResponse.noContent().build();
-        }
+        return Mono.justOrEmpty(this.getClass().getResource("/files"))
+                .flatMap(url->ServerResponse
+                        .ok()
+                        .headers(httpHeaders -> httpHeaders.setContentDisposition(ContentDisposition.builder("attachment").filename("images.zip").build()))
+                        .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                        .body(BodyInserters.fromDataBuffers(getDataBufferFlux(url, request.exchange().getResponse().bufferFactory())))
+                ).switchIfEmpty(ServerResponse.noContent().build());
+
     }
 
     private Flux<DataBuffer> getDataBufferFlux(URL url, DataBufferFactory dataBufferFactory) {
