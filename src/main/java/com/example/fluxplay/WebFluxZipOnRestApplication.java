@@ -3,6 +3,7 @@ package com.example.fluxplay;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.http.*;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.*;
@@ -12,6 +13,7 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.stream.Stream;
 import java.util.zip.ZipOutputStream;
 
@@ -28,9 +30,11 @@ public class WebFluxZipOnRestApplication {
     public ResponseEntity<Flux<DataBuffer>> getStuffFlux(ServerHttpResponse serverHttpResponse) throws Exception {
         URL url = this.getClass().getResource("/files");
         if ( url != null ) {
-            try (Stream<Path> fileStream = Files.list(Paths.get(url.toURI()))){
-                try (OutputStreamToDataBuffer outputStreamToDataBuffer = new OutputStreamToDataBuffer(serverHttpResponse.bufferFactory())) {
-                    Flux<DataBuffer> flux = Flux.generate(() -> new ZipWriterState(fileStream.toList(), new ZipOutputStream(outputStreamToDataBuffer)),
+            try (Stream<Path> fileStream = Files.list(Paths.get(url.toURI()))) {
+                DataBufferFactory dataBufferFactory = serverHttpResponse.bufferFactory();
+                try (OutputStreamToDataBuffer outputStreamToDataBuffer = new OutputStreamToDataBuffer(dataBufferFactory)) {
+                    List<Path> paths = fileStream.toList();
+                    Flux<DataBuffer> flux = Flux.generate(() -> new ZipWriterState(paths, new ZipOutputStream(outputStreamToDataBuffer)),
                             (zipWriterState, synchronousSink) -> {
                                 try {
                                     if (zipWriterState.writeNext()) {
@@ -39,7 +43,7 @@ public class WebFluxZipOnRestApplication {
                                             synchronousSink.next(db);
                                             outputStreamToDataBuffer.resetDataBuffer();
                                         } else {
-                                            synchronousSink.next(serverHttpResponse.bufferFactory().allocateBuffer(0));
+                                            synchronousSink.next(dataBufferFactory.allocateBuffer(0));
                                         }
                                     } else
                                         synchronousSink.complete();
@@ -57,11 +61,7 @@ public class WebFluxZipOnRestApplication {
                 }
             }
         } else {
-            return ResponseEntity
-                    .ok()
-                    .headers(httpHeaders -> httpHeaders.setContentDisposition(ContentDisposition.builder("attachment").filename("images.zip").build()))
-                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                    .body(Flux.empty());
+            return ResponseEntity.noContent().build();
         }
     }
 
