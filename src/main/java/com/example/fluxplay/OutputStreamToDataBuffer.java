@@ -17,7 +17,7 @@ public class OutputStreamToDataBuffer extends OutputStream {
     @Override
     public void write(int b)  {
         if ( db == null ) {
-            db = dataBufferFactory.allocateBuffer(8192);
+            db = dataBufferFactory.allocateBuffer(8192*2);
         }
         db.write((byte) b);
     }
